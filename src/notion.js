@@ -97,16 +97,11 @@ function chunkArray(array, size) {
 }
 
 export async function addFeedItemToNotion(notionItem) {
-  const {
-    title,
-    link,
-    guid,
-    content,
-  } = notionItem;
+  const { title, link, guid, content } = notionItem;
 
   if (!title && !link && !guid) {
     console.error('Invalid feed item:', notionItem);
-    return;
+    return null;
   }
 
   const properties = {

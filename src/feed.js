@@ -10,6 +10,7 @@ const parser = new Parser({
       ['content:encoded', 'contentEncoded'],
       ['media:content', 'mediaContent', { keepArray: true }],
       ['media:thumbnail', 'mediaThumbnail', { keepArray: true }],
+      ['itunes:image', 'itunesImage', { keepArray: true }],
       ['enclosure', 'enclosure', { keepArray: true }],
     ],
   },

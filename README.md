@@ -100,6 +100,29 @@ $ npm install
 $ npm run watch
 ```
 
+## Troubleshooting: images are missing or broken in Notion
+
+If feed images don't show up in Notion, check these in order:
+
+1. **Relative image URLs** — many feeds (especially WordPress) use relative paths like
+   `/wp-content/uploads/photo.jpg` inside `content:encoded`. The reader now resolves them
+   against the article link / feed URL automatically.
+2. **Lazy-loaded images** — `data-src`, `data-srcset`, `data-lazy-srcset`, `data-original`
+   etc. are all handled. Images wrapped in `<picture>`, `<a>`, `<noscript>` or `<span>` are
+   also extracted now.
+3. **Anti-hotlink protection** — some sites (WeChat public accounts, some CDNs) reject
+   requests from Notion's servers, so the image shows as broken. Set an image proxy in
+   `.env` to forward the image, e.g.:
+
+   ```
+   IMAGE_PROXY_URL=https://images.weserv.nl/?url=
+   ```
+
+   Leave it empty to use the original URLs directly.
+4. **Podcast / image-only feeds** — cover art from `enclosure`, `media:content`,
+   `media:thumbnail` and `itunes:image` is now added as an image block when the body has no
+   `<img>` tags.
+
 ## Tech Stack
 
 - [Node](https://nodejs.org/)
