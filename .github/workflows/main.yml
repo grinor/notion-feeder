@@ -2,7 +2,7 @@ name: Get Feed
 
 on:
   schedule:
-    - cron: '30 12 * * *' # 12:30 UTC (20:30 Beijing time)
+    - cron: '0 */2 * * *' # 12:30 UTC (20:30 Beijing time)
   workflow_dispatch:
 
 jobs:
