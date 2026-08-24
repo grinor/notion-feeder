@@ -12,25 +12,22 @@ const {
 
 const logLevel = CI ? LogLevel.INFO : LogLevel.DEBUG;
 
-export async function getFeedUrlsFromNotion() {
-  const notion = new Client({
-    auth: NOTION_API_TOKEN,
-    logLevel,
-  });
+const notion = new Client({
+  auth: NOTION_API_TOKEN,
+  logLevel,
+});
 
+export async function getFeedUrlsFromNotion() {
   let response;
+
   try {
     response = await notion.databases.query({
       database_id: NOTION_FEEDS_DATABASE_ID,
       filter: {
-        or: [
-          {
-            property: 'Enabled',
-            checkbox: {
-              equals: true,
-            },
-          },
-        ],
+        property: 'Enabled',
+        checkbox: {
+          equals: true,
+        },
       },
     });
   } catch (err) {
@@ -38,61 +35,154 @@ export async function getFeedUrlsFromNotion() {
     return [];
   }
 
-  const feeds = response.results.map((item) => ({
-    title: item.properties.Title.title[0].plain_text,
-    feedUrl: item.properties.Link.url,
-  }));
+  return response.results
+    .map((item) => {
+      const title = item.properties.Title?.title?.[0]?.plain_text;
+      const feedUrl = item.properties.Link?.url;
 
-  return feeds;
+      if (!feedUrl) {
+        return null;
+      }
+
+      return {
+        title: title || '',
+        feedUrl,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Check whether an RSS item already exists in Notion.
+ *
+ * GUID is the primary deduplication key.
+ */
+export async function feedItemExistsInNotion(guid) {
+  if (!guid) {
+    return false;
+  }
+
+  try {
+    const response = await notion.databases.query({
+      database_id: NOTION_READER_DATABASE_ID,
+      filter: {
+        property: 'GUID',
+        rich_text: {
+          equals: guid,
+        },
+      },
+      page_size: 1,
+    });
+
+    return response.results.length > 0;
+  } catch (err) {
+    console.error('Failed to check GUID:', guid);
+    console.error(err);
+
+    // Fail closed.
+    // If Notion cannot be queried, do NOT create the item,
+    // otherwise a temporary API problem could cause duplicates.
+    return true;
+  }
+}
+
+function chunkArray(array, size) {
+  const chunks = [];
+
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+
+  return chunks;
 }
 
 export async function addFeedItemToNotion(notionItem) {
-  const { title, link, content } = notionItem;
+  const {
+    title,
+    link,
+    guid,
+    content,
+  } = notionItem;
 
-  const notion = new Client({
-    auth: NOTION_API_TOKEN,
-    logLevel,
-  });
+  if (!title && !link && !guid) {
+    console.error('Invalid feed item:', notionItem);
+    return;
+  }
+
+  const properties = {
+    Title: {
+      title: [
+        {
+          text: {
+            content: title || 'Untitled',
+          },
+        },
+      ],
+    },
+  };
+
+  if (link) {
+    properties.Link = {
+      url: link,
+    };
+  }
+
+  if (guid) {
+    properties.GUID = {
+      rich_text: [
+        {
+          text: {
+            content: guid.substring(0, 2000),
+          },
+        },
+      ],
+    };
+  }
 
   try {
-    await notion.pages.create({
+    /*
+     * Notion's page creation API has a limit on the number of
+     * children that can be supplied in one request.
+     *
+     * Create the page with the first batch, then append the rest.
+     */
+    const contentChunks = chunkArray(content || [], 100);
+
+    const firstChunk = contentChunks.shift() || [];
+
+    const response = await notion.pages.create({
       parent: {
         database_id: NOTION_READER_DATABASE_ID,
       },
-      properties: {
-        Title: {
-          title: [
-            {
-              text: {
-                content: title,
-              },
-            },
-          ],
-        },
-        Link: {
-          url: link,
-        },
-      },
-      children: content,
+      properties,
+      children: firstChunk,
     });
+
+    /*
+     * Append remaining blocks.
+     */
+    for (let i = 0; i < contentChunks.length; i += 1) {
+      await notion.blocks.children.append({
+        block_id: response.id,
+        children: contentChunks[i],
+      });
+    }
+
+    return response;
   } catch (err) {
+    console.error(`Failed to create Notion item: ${title}`);
     console.error(err);
+    return null;
   }
 }
 
 export async function deleteOldUnreadFeedItemsFromNotion() {
-  const notion = new Client({
-    auth: NOTION_API_TOKEN,
-    logLevel,
-  });
-
-  // Create a datetime which is 30 days earlier than the current time
+  // Create a datetime which is 30 days earlier than the current time.
   const fetchBeforeDate = new Date();
   fetchBeforeDate.setDate(fetchBeforeDate.getDate() - 30);
 
-  // Query the feed reader database
-  // and fetch only those items that are unread or created before last 30 days
   let response;
+
   try {
     response = await notion.databases.query({
       database_id: NOTION_READER_DATABASE_ID,
@@ -118,11 +208,11 @@ export async function deleteOldUnreadFeedItemsFromNotion() {
     return;
   }
 
-  // Get the page IDs from the response
   const feedItemsIds = response.results.map((item) => item.id);
 
-  for (let i = 0; i < feedItemsIds.length; i++) {
+  for (let i = 0; i < feedItemsIds.length; i += 1) {
     const id = feedItemsIds[i];
+
     try {
       await notion.pages.update({
         page_id: id,
