@@ -10,6 +10,7 @@ import {
 
 import htmlToNotionBlocks from './parser';
 import { normalizeUrl, proxyImageUrl } from './helpers';
+import { loadSeenGuids, saveSeenGuids } from './seenGuids';
 
 function getItemGuid(item) {
   /*
@@ -171,7 +172,7 @@ async function processFeedItem(item, guid) {
 
   console.log(`Adding: ${notionItem.title}`);
 
-  await addFeedItemToNotion(notionItem);
+  return addFeedItemToNotion(notionItem);
 }
 
 async function index() {
@@ -179,24 +180,45 @@ async function index() {
 
   console.log(`Found ${feedItems.length} feed items.`);
 
+  /*
+   * 已处理 GUID 历史：即使条目被手动从 Notion 删除（归档），
+   * 也不会被重新抓取。运行结束后会写回 data/seen-guids.json，
+   * 由 CI 提交回仓库形成长期记忆。
+   */
+  const seenGuids = loadSeenGuids();
+
   for (let i = 0; i < feedItems.length; i += 1) {
     const item = feedItems[i];
 
     const guid = getItemGuid(item);
 
-    /*
-     * This is the key change:
-     *
-     * We no longer rely on RUN_FREQUENCY for deduplication.
-     */
-    const exists = await feedItemExistsInNotion(guid);
-
-    if (exists) {
-      console.log(`Skipping existing item: ${item.title}`);
+    if (seenGuids.has(guid)) {
+      console.log(`Skipping previously seen item: ${item.title}`);
     } else {
-      await processFeedItem(item, guid);
+      /*
+       * 查重三态：
+       * - 'exists': 已存在，跳过并记入历史（防止将来删除后重新抓取）
+       * - 'error':  查询失败，跳过但不记入历史（fail closed，避免误屏蔽）
+       * - 'missing': 不存在，插入；只有插入成功才记入历史
+       */
+      const status = await feedItemExistsInNotion(guid);
+
+      if (status === 'exists') {
+        console.log(`Skipping existing item: ${item.title}`);
+        seenGuids.add(guid);
+      } else if (status === 'error') {
+        console.log(`Skipping existing item (check failed): ${item.title}`);
+      } else {
+        const created = await processFeedItem(item, guid);
+
+        if (created) {
+          seenGuids.add(guid);
+        }
+      }
     }
   }
+
+  saveSeenGuids(seenGuids);
 
   await deleteOldUnreadFeedItemsFromNotion();
 }

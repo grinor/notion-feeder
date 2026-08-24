@@ -56,10 +56,15 @@ export async function getFeedUrlsFromNotion() {
  * Check whether an RSS item already exists in Notion.
  *
  * GUID is the primary deduplication key.
+ *
+ * Returns one of:
+ * - 'exists':  the item is present in the database
+ * - 'missing': the item is not present
+ * - 'error':   the query failed (callers should fail closed)
  */
 export async function feedItemExistsInNotion(guid) {
   if (!guid) {
-    return false;
+    return 'missing';
   }
 
   try {
@@ -74,7 +79,7 @@ export async function feedItemExistsInNotion(guid) {
       page_size: 1,
     });
 
-    return response.results.length > 0;
+    return response.results.length > 0 ? 'exists' : 'missing';
   } catch (err) {
     console.error('Failed to check GUID:', guid);
     console.error(err);
@@ -82,7 +87,7 @@ export async function feedItemExistsInNotion(guid) {
     // Fail closed.
     // If Notion cannot be queried, do NOT create the item,
     // otherwise a temporary API problem could cause duplicates.
-    return true;
+    return 'error';
   }
 }
 
