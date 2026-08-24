@@ -164,7 +164,7 @@ function createDivider() {
   };
 }
 
-function createBookmark($, element) {
+function createParagraph($, element) {
   const href = normalizeUrl($(element).attr('href'));
 
   if (!href) {
@@ -245,7 +245,7 @@ function processElement($, element) {
       return createDivider();
 
     case 'a':
-      return createBookmark($, element);
+      return createParagraph($, element);
 
     case 'li': {
       const parent = $(element).parent().get(0);
